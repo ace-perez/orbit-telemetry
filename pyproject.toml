@@ -1,0 +1,59 @@
+[project]
+name = "orbit-telemetry"
+version = "0.1.0"
+description = "Satellite telemetry API: real orbits from CelesTrak, simulated spacecraft subsystems"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Ace Perez" }]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.165.0",
+    "httpx>=0.28.1",
+    "prometheus-client>=0.26.0",
+    "pydantic-settings>=2.16.3",
+    "skyfield>=1.55",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+orbit-telemetry = "orbit_telemetry:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.14"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.6",
+]
+
+# ---------------------------------------------------------------------------
+# Tooling configuration. Keeping it here (not in separate files) means one
+# place to review, and CI uses exactly the same settings as your laptop.
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+# Starlette warns about its own httpx-based test client; not something this project controls.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.coverage.run]
+source = ["orbit_telemetry"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E/F: pycodestyle and pyflakes (real errors), I: import order, UP: modern syntax,
+# B: bugbear (likely bugs), SIM: simplifications. Security rules are left to Bandit (Phase 3).
+select = ["E", "F", "I", "UP", "B", "SIM"]
