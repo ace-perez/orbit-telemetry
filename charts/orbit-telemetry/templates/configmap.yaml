@@ -1,0 +1,18 @@
+# App settings as environment variables. The Deployment carries a checksum of this file,
+# so changing a value rolls the pods (environment variables are only read at start-up).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orbit-telemetry.fullname" . }}
+  labels:
+    {{- include "orbit-telemetry.labels" . | nindent 4 }}
+data:
+  APP_VERSION: {{ include "orbit-telemetry.imageTag" . | quote }}
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  CELESTRAK_BASE_URL: {{ .Values.config.celestrakBaseUrl | quote }}
+  SATELLITES: {{ .Values.config.satellites | quote }}
+  ORBIT_REFRESH_SECONDS: {{ .Values.config.orbitRefreshSeconds | quote }}
+  TICK_SECONDS: {{ .Values.config.tickSeconds | quote }}
+  STALE_AFTER_SECONDS: {{ .Values.config.staleAfterSeconds | quote }}
+  FAILURE_RATE: {{ .Values.config.failureRate | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}

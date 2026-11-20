@@ -1,0 +1,70 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $job := include "orbit-telemetry.fullname" . }}
+# Alert rules evaluated by Prometheus (kube-prometheus-stack, Phase 7) and routed by
+# Alertmanager. Phase 7 adds SLO burn-rate alerts alongside these.
+# Quoted double braces below render as literal braces for Prometheus' own label templating.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "orbit-telemetry.fullname" . }}
+  labels:
+    {{- include "orbit-telemetry.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: orbit-telemetry.availability
+      rules:
+        - alert: OrbitTelemetryDown
+          expr: absent(up{job="{{ $job }}"} == 1)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: No healthy orbit-telemetry pod is being scraped
+            description: Prometheus has not scraped a healthy orbit-telemetry target for 2 minutes.
+
+        - alert: OrbitTelemetryHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job="{{ $job }}", status=~"5.."}[5m]))
+              /
+            sum(rate(http_requests_total{job="{{ $job }}"}[5m]))
+              > {{ .Values.prometheusRule.errorRateThreshold }}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: More than {{ mulf .Values.prometheusRule.errorRateThreshold 100 }}% of requests are failing
+            description: 'Error ratio is {{ "{{" }} $value | humanizePercentage {{ "}}" }} over the last 5 minutes.'
+
+    - name: orbit-telemetry.data
+      rules:
+        - alert: OrbitalDataStale
+          expr: max by (norad_id) (orbital_data_age_seconds{job="{{ $job }}"}) > {{ .Values.config.staleAfterSeconds }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Orbital data for NORAD {{ "{{" }} $labels.norad_id {{ "}}" }} is stale'
+            description: Positions are being propagated from old elements; check CelesTrak fetches.
+
+        - alert: CelesTrakFetchFailing
+          expr: sum by (norad_id) (increase(celestrak_fetch_failures_total{job="{{ $job }}"}[1h])) > 3
+          labels:
+            severity: warning
+          annotations:
+            summary: 'CelesTrak fetches for NORAD {{ "{{" }} $labels.norad_id {{ "}}" }} keep failing'
+            description: More than 3 failed fetches in the last hour.
+
+    - name: orbit-telemetry.spacecraft
+      rules:
+        - alert: SatelliteBusVoltageLow
+          expr: min by (norad_id, name) (satellite_battery_voltage_volts{job="{{ $job }}"}) < 26
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Simulated bus voltage low on {{ "{{" }} $labels.name {{ "}}" }}'
+            description: 'Bus voltage {{ "{{" }} $value | printf "%.1f" {{ "}}" }} V is below the 26 V warning band (simulated subsystem).'
+{{- end }}

@@ -1,0 +1,123 @@
+# Default values for the orbit-telemetry chart.
+# Environment-specific values live outside the chart: deploy/kind/values-kind.yaml (CI) and,
+# from Phase 6, the values file for the EC2 k3s cluster.
+
+# One replica on purpose: each pod runs its own subsystem simulator, so two replicas would
+# show slightly different battery and thermal readings depending on which pod answers.
+# Deploys stay zero-downtime through the rolling update below (new pod ready before old stops).
+replicaCount: 1
+
+image:
+  repository: ghcr.io/ace-perez/orbit-telemetry
+  # Empty means the chart's appVersion. Deployments set an immutable sha-<commit> tag.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Settings passed to the app as environment variables (see src/orbit_telemetry/config.py).
+config:
+  environment: kubernetes
+  celestrakBaseUrl: https://celestrak.org
+  satellites: "25544,20580,40697,33591,49260"
+  orbitRefreshSeconds: 7200 # CelesTrak fair use: never below 600
+  tickSeconds: 5
+  staleAfterSeconds: 21600
+  failureRate: 0 # raised only for the rollback demo in Phase 7
+  logLevel: INFO
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+# Pod-level hardening; matches the Dockerfile (UID 10001) and the Compose settings.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: traefik # the ingress controller bundled with k3s
+  annotations: {}
+  host: ""
+  tls: [] # filled in by the HTTPS extra (cert-manager)
+
+# Requests reserve capacity for scheduling; limits cap usage. The memory limit stops a leak
+# from taking the node down (the pod is OOM-killed and restarted instead).
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    cpu: "1"
+    memory: 384Mi
+
+# Liveness: is the process healthy (fail = restart). Readiness: is orbital data loaded
+# (fail = no traffic, no restart). Startup: gives the first fetch time before liveness counts.
+probes:
+  startup:
+    path: /healthz
+    periodSeconds: 2
+    failureThreshold: 30
+  liveness:
+    path: /healthz
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+terminationGracePeriodSeconds: 20
+
+# Only rendered when replicaCount > 1.
+podDisruptionBudget:
+  minAvailable: 1
+
+# Prometheus Operator resources (kube-prometheus-stack, Phase 7). Off by default because
+# the CRDs must exist first; the EC2 values file turns them on.
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  # kube-prometheus-stack only picks up ServiceMonitors carrying its release label.
+  labels:
+    release: kube-prometheus-stack
+
+prometheusRule:
+  enabled: false
+  labels:
+    release: kube-prometheus-stack
+  errorRateThreshold: 0.05 # 5% of requests failing for 5 minutes
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

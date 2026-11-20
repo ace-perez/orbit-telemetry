@@ -1,6 +1,6 @@
 # Continuous integration: quality and security gates on every pull request and every push
 # to main, then a published container image for every green commit on main and every tag.
-# Every gate job name (lint, test, sast, trivy, secrets, sonarqube, container) is a required
+# Every gate job name (lint, test, sast, trivy, secrets, sonarqube, container, helm) is a required
 # check in .github/rulesets/protect-main.json, so renaming a job means updating that file too.
 name: CI
 
@@ -168,8 +168,8 @@ jobs:
       - name: Full report for the Security tab
         if: always()
         run: >-
-          trivy fs --scanners vuln,misconfig --format sarif --output trivy.sarif
-          --skip-dirs .venv --no-progress .
+          trivy fs --scanners vuln,misconfig --ignore-unfixed --format sarif
+          --output trivy.sarif --skip-dirs .venv --no-progress .
 
       - name: Upload Trivy results to code scanning
         if: always() && hashFiles('trivy.sarif') != ''
@@ -309,11 +309,13 @@ jobs:
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
           --exit-code 1 --no-progress "${CI_IMAGE}"
 
+      # Only vulnerabilities that have a fix: the Security tab should list things we can act
+      # on. Unfixed base-image CVEs (no patch from Debian yet) would bury them in noise.
       - name: Image report for the Security tab
         if: always()
         run: >-
-          trivy image --scanners vuln --format sarif --output trivy-image.sarif
-          --no-progress "${CI_IMAGE}"
+          trivy image --scanners vuln --ignore-unfixed --format sarif
+          --output trivy-image.sarif --no-progress "${CI_IMAGE}"
 
       - name: Upload image scan results to code scanning
         if: always() && hashFiles('trivy-image.sarif') != ''
@@ -352,12 +354,127 @@ jobs:
           APP_IMAGE: ${{ env.CI_IMAGE }}
         run: docker compose down --volumes
 
+  # ---------------------------------------------------------------------------
+  # Phase 5: Helm chart, validated statically and installed into a throwaway cluster
+  # ---------------------------------------------------------------------------
+
+  helm:
+    name: helm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HELM_VERSION: "4.3.2"
+      # Taken from get.helm.sh's published .sha256sum when this was pinned (see Phase 5 plan).
+      HELM_SHA256: "d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983"
+      KIND_VERSION: "0.33.0"
+      KIND_SHA256: "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d"
+      KUBECONFORM_VERSION: "0.8.0"
+      KUBECONFORM_SHA256: "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883"
+      CHART: charts/orbit-telemetry
+      CI_IMAGE: orbit-telemetry:ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Helm, kind and kubeconform (pinned versions, checksums verified)
+        run: |
+          curl -sSfL -o helm.tar.gz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tar.gz" | sha256sum --check -
+          tar -xzf helm.tar.gz --strip-components=1 linux-amd64/helm
+          sudo install -m 0755 helm /usr/local/bin/helm
+
+          curl -sSfL -o kind "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  kind" | sha256sum --check -
+          sudo install -m 0755 kind /usr/local/bin/kind
+
+          curl -sSfL -o kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check -
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+
+          rm -f helm helm.tar.gz kind kubeconform kubeconform.tar.gz
+          helm version --short && kind version && kubeconform -v
+
+      - name: Lint the chart (default, kind and every optional template)
+        run: |
+          helm lint --strict "${CHART}"
+          helm lint --strict "${CHART}" -f deploy/kind/values-kind.yaml
+          helm lint --strict "${CHART}" -f "${CHART}/ci/full-values.yaml"
+
+      - name: Validate rendered manifests against Kubernetes 1.37 schemas
+        run: |
+          helm template orbit-telemetry "${CHART}" -f "${CHART}/ci/full-values.yaml" \
+            | kubeconform -strict -summary -kubernetes-version 1.37.0 \
+                -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          kubeconform -strict -summary -kubernetes-version 1.37.0 deploy/kind/celestrak-stub.yaml
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image (reuses the container job's layer cache)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: ${{ env.CI_IMAGE }}
+          build-args: APP_VERSION=ci-${{ github.sha }}
+          cache-from: type=gha
+
+      - name: Create a kind cluster and load the image
+        run: |
+          kind create cluster --name ci --wait 120s
+          kind load docker-image "${CI_IMAGE}" --name ci
+          kubectl get nodes -o wide
+
+      - name: Deploy the CelesTrak stub
+        run: |
+          kubectl create configmap celestrak-stub \
+            --from-file=tools/celestrak_stub.py --from-file=tests/fixtures/omm.json
+          kubectl apply -f deploy/kind/celestrak-stub.yaml
+          kubectl rollout status deployment/celestrak-stub --timeout=120s
+
+      - name: Install the chart and wait until it is ready
+        run: >-
+          helm install orbit-telemetry "${CHART}"
+          -f deploy/kind/values-kind.yaml
+          --wait --timeout 3m
+
+      - name: Helm test (readiness through the Service)
+        run: helm test orbit-telemetry --logs
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          cache-python: true
+
+      - name: Integration tests through the Kubernetes Service
+        env:
+          INTEGRATION_BASE_URL: http://localhost:8000
+          INTEGRATION_EXPECTED_ENVIRONMENT: kind
+        run: |
+          uv sync --locked
+          # Forward a local port to the Service in the background; the tests retry until ready.
+          kubectl port-forward service/orbit-telemetry 8000:80 > port-forward.log 2>&1 &
+          uv run pytest tests/integration -v
+
+      - name: Cluster state (on failure)
+        if: failure()
+        run: |
+          kubectl get all -o wide
+          kubectl describe pods
+          kubectl logs deployment/orbit-telemetry --tail=100 || true
+          kubectl get events --sort-by=.lastTimestamp | tail -30
+
+      - name: Delete the cluster
+        if: always()
+        run: kind delete cluster --name ci
+
   # Publishes only from main or a release tag, and only after every gate passed. On a PR this
   # job is skipped, so it is deliberately not a required check.
   publish:
     name: publish
     if: github.event_name == 'push'
-    needs: [lint, test, sast, trivy, secrets, sonarqube, container]
+    needs: [lint, test, sast, trivy, secrets, sonarqube, container, helm]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -400,7 +517,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
-          provenance: mode=max # signed record of how and where the image was built
+          provenance: mode=max # unsigned SLSA record of how and where the image was built
           sbom: true # software bill of materials attached to the image
 
       - name: Summary

@@ -18,20 +18,27 @@ updates:
       python-minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # Base images in the Dockerfile (python, uv)
+  # Base images in the Dockerfile (python, uv). Python stays on 3.13 until a deliberate
+  # upgrade: only patch updates (3.13.x) are proposed automatically.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       base-images:
         patterns: ["*"]
 
-  # Images in compose.yaml (python for the stub, prometheus)
+  # Images in compose.yaml (python for the stub, prometheus), same Python rule.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       compose-images:
         patterns: ["*"]

@@ -1,0 +1,38 @@
+# `helm test` runs this pod after a deploy: it calls /readyz through the Service, so it
+# proves DNS, the Service, the selector and the app's readiness all work together.
+# It reuses the app image (Python's standard library) so no extra image is pulled.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "orbit-telemetry.fullname" . }}-test-readiness
+  labels:
+    {{- include "orbit-telemetry.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: readiness
+      image: {{ include "orbit-telemetry.image" . | quote }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      command:
+        - python
+        - -c
+        - |
+          import urllib.request
+          url = "http://{{ include "orbit-telemetry.fullname" . }}:{{ .Values.service.port }}/readyz"
+          with urllib.request.urlopen(url, timeout=5) as response:
+              print(url, response.status, response.read().decode())
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
