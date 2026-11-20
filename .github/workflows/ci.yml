@@ -1,5 +1,6 @@
-# Continuous integration: quality and security gates on every pull request and every push
-# to main, then a published container image for every green commit on main and every tag.
+# Continuous integration and delivery: quality and security gates on every pull request and
+# every push to main; for every green commit on main, an arm64 image published to GHCR and
+# deployed to k3s on AWS Graviton (Phase 6).
 # Every gate job name (lint, test, sast, trivy, secrets, sonarqube, container, helm) is a required
 # check in .github/rulesets/protect-main.json, so renaming a job means updating that file too.
 name: CI
@@ -25,6 +26,7 @@ concurrency:
 # pinned checksum instead of aquasecurity/trivy-action, whose tags were hijacked in March 2026.
 env:
   TRIVY_VERSION: "0.76.2"
+  TRIVY_PLATFORM: Linux-64bit # x86_64 runners; the arm64 jobs override both values
   TRIVY_SHA256: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
@@ -52,6 +54,18 @@ jobs:
 
       - name: Ruff format check
         run: uv run ruff format --check .
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.17.2"
+          terraform_wrapper: false # plain terraform output in the logs
+
+      - name: Terraform format and validate (no backend, no AWS access)
+        working-directory: infra/terraform
+        run: |
+          terraform fmt -check -recursive -diff
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
 
   test:
     name: test
@@ -150,7 +164,7 @@ jobs:
       - name: Install Trivy (pinned version, checksum verified)
         run: |
           curl -sSfL -o trivy.tar.gz \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_${TRIVY_PLATFORM}.tar.gz"
           echo "${TRIVY_SHA256}  trivy.tar.gz" | sha256sum --check -
           tar -xzf trivy.tar.gz trivy
           sudo install -m 0755 trivy /usr/local/bin/trivy
@@ -240,9 +254,11 @@ jobs:
   # Phase 4: container image
   # ---------------------------------------------------------------------------
 
+  # Phase 6: the image jobs run on arm64 runners, so the image that is built, scanned and
+  # tested is the same architecture as the Graviton node that runs it.
   container:
     name: container
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     permissions:
       contents: read
@@ -251,7 +267,9 @@ jobs:
       HADOLINT_VERSION: "2.15.1"
       # Hadolint publishes no checksum file for this release, so this is the SHA-256 of the
       # binary as first downloaded (trust on first use): any later change to it fails the job.
-      HADOLINT_SHA256: "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+      HADOLINT_SHA256: "f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d"
+      TRIVY_PLATFORM: Linux-ARM64
+      TRIVY_SHA256: "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
       CI_IMAGE: orbit-telemetry:ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,7 +279,7 @@ jobs:
       - name: Install Hadolint (pinned version, checksum verified)
         run: |
           curl -sSfL -o hadolint \
-            "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+            "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-arm64"
           echo "${HADOLINT_SHA256}  hadolint" | sha256sum --check -
           sudo install -m 0755 hadolint /usr/local/bin/hadolint
           rm hadolint
@@ -298,7 +316,7 @@ jobs:
       - name: Install Trivy (pinned version, checksum verified)
         run: |
           curl -sSfL -o trivy.tar.gz \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_${TRIVY_PLATFORM}.tar.gz"
           echo "${TRIVY_SHA256}  trivy.tar.gz" | sha256sum --check -
           tar -xzf trivy.tar.gz trivy
           sudo install -m 0755 trivy /usr/local/bin/trivy
@@ -360,16 +378,16 @@ jobs:
 
   helm:
     name: helm
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     env:
       HELM_VERSION: "4.3.2"
-      # Taken from get.helm.sh's published .sha256sum when this was pinned (see Phase 5 plan).
-      HELM_SHA256: "d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983"
+      # Taken from get.helm.sh's published .sha256sum for linux-arm64 (Phase 6, Step 1).
+      HELM_SHA256: "df31cb61680ef728f82c770e5280dd565617bee6b039d37e85c677288be4bbb0"
       KIND_VERSION: "0.33.0"
-      KIND_SHA256: "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d"
+      KIND_SHA256: "20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a2"
       KUBECONFORM_VERSION: "0.8.0"
-      KUBECONFORM_SHA256: "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883"
+      KUBECONFORM_SHA256: "1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87"
       CHART: charts/orbit-telemetry
       CI_IMAGE: orbit-telemetry:ci
     steps:
@@ -379,16 +397,16 @@ jobs:
 
       - name: Install Helm, kind and kubeconform (pinned versions, checksums verified)
         run: |
-          curl -sSfL -o helm.tar.gz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL -o helm.tar.gz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-arm64.tar.gz"
           echo "${HELM_SHA256}  helm.tar.gz" | sha256sum --check -
-          tar -xzf helm.tar.gz --strip-components=1 linux-amd64/helm
+          tar -xzf helm.tar.gz --strip-components=1 linux-arm64/helm
           sudo install -m 0755 helm /usr/local/bin/helm
 
-          curl -sSfL -o kind "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
+          curl -sSfL -o kind "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-arm64"
           echo "${KIND_SHA256}  kind" | sha256sum --check -
           sudo install -m 0755 kind /usr/local/bin/kind
 
-          curl -sSfL -o kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -sSfL -o kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-arm64.tar.gz"
           echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check -
           tar -xzf kubeconform.tar.gz kubeconform
           sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
@@ -475,7 +493,7 @@ jobs:
     name: publish
     if: github.event_name == 'push'
     needs: [lint, test, sast, trivy, secrets, sonarqube, container, helm]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     permissions:
       contents: read
@@ -512,6 +530,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          platforms: linux/arm64 # the Graviton node; built natively, no emulation
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -531,4 +550,90 @@ jobs:
             echo "${TAGS}"
             echo "digest: ${DIGEST}"
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Phase 6: continuous deployment to k3s on AWS Graviton
+  # ---------------------------------------------------------------------------
+
+  # Runs after every successful publish from main. No AWS keys are stored in GitHub: the job
+  # trades its short-lived OIDC token for a role that can only run a command on one instance,
+  # and only for this repository's "production" environment. Switched off until the
+  # infrastructure exists, and again after `terraform destroy` (variable DEPLOY_ENABLED).
+  deploy:
+    name: deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    needs: [publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: http://${{ vars.APP_HOST }}/docs
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false # never stop a deploy halfway; queue the next one
+    permissions:
+      contents: read
+      id-token: write # request the OIDC token that AWS exchanges for the deploy role
+    env:
+      AWS_REGION: eu-west-1
+      INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      APP_HOST: ${{ vars.APP_HOST }}
+    steps:
+      - name: Get temporary AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy this commit with Helm, through SSM Run Command
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_ENV"
+          PARAMS="$(jq -cn --arg c "/opt/orbit/deploy.sh ${GITHUB_SHA} ${IMAGE_TAG}" '{commands: [$c]}')"
+          COMMAND_ID="$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${IMAGE_TAG} (run ${GITHUB_RUN_ID})" \
+            --timeout-seconds 600 \
+            --parameters "$PARAMS" \
+            --query Command.CommandId --output text)"
+          echo "SSM command ${COMMAND_ID}"
+
+          STATUS=Pending
+          for _ in $(seq 1 120); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)"
+            case "$STATUS" in Pending|InProgress|Delayed) sleep 5 ;; *) break ;; esac
+          done
+
+          echo "::group::Output from the node"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text
+          echo "::endgroup::"
+          echo "::group::Errors from the node"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardErrorContent --output text
+          echo "::endgroup::"
+
+          echo "Deploy finished with status: ${STATUS}"
+          [ "$STATUS" = "Success" ]
+
+      - name: Smoke test from outside (the live version must be this commit)
+        run: |
+          set -euo pipefail
+          LIVE=""
+          for _ in $(seq 1 24); do
+            LIVE="$(curl -fsS --max-time 5 "http://${APP_HOST}/api/v1/info" | jq -r .version || true)"
+            [ "$LIVE" = "$IMAGE_TAG" ] && break
+            sleep 5
+          done
+          echo "Expected ${IMAGE_TAG}, live ${LIVE:-nothing}"
+          [ "$LIVE" = "$IMAGE_TAG" ]
+          {
+            echo "## Deployed"
+            echo "- Version: \`${IMAGE_TAG}\`"
+            echo "- URL: http://${APP_HOST}/docs"
           } >> "$GITHUB_STEP_SUMMARY"

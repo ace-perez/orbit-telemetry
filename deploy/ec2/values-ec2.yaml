@@ -1,0 +1,17 @@
+# Values for production: k3s on the Graviton EC2 node (Phase 6).
+# deploy.sh adds the rest at deploy time: image.tag (sha-<commit>) and ingress.host
+# (orbit.<elastic ip>.nip.io), so nothing environment-specific is hardcoded here.
+
+config:
+  environment: production
+  celestrakBaseUrl: https://celestrak.org # the real CelesTrak, refreshed every 2 hours (fair use)
+
+ingress:
+  enabled: true
+  className: traefik # bundled with k3s, listening on ports 80 and 443 of the node
+
+# Turned on in Phase 7, once kube-prometheus-stack has installed the CRDs.
+serviceMonitor:
+  enabled: false
+prometheusRule:
+  enabled: false

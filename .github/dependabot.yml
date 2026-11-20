@@ -1,5 +1,4 @@
 # Dependabot opens PRs when dependencies have updates.
-# The terraform ecosystem is added in Phase 6, once those files exist.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -42,3 +41,9 @@ updates:
     groups:
       compose-images:
         patterns: ["*"]
+
+  # Terraform providers (infra/terraform/.terraform.lock.hcl)
+  - package-ecosystem: "terraform"
+    directory: "/infra/terraform"
+    schedule:
+      interval: "weekly"

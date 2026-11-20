@@ -25,11 +25,13 @@ reports/
 kubeconfig*
 *.kubeconfig
 
-# Terraform
+# Terraform (state lives in S3; tfvars hold your email and checksums)
 .terraform/
 *.tfstate
 *.tfstate.*
 *.tfplan
+*.tfvars
+!*.tfvars.example
 crash.log
 .terraform.tfstate.lock.info
 
