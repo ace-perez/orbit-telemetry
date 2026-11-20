@@ -57,3 +57,8 @@ target-version = "py313"
 # E/F: pycodestyle and pyflakes (real errors), I: import order, UP: modern syntax,
 # B: bugbear (likely bugs), SIM: simplifications. Security rules are left to Bandit (Phase 3).
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.uv]
+# The same uv on every laptop and in CI: setup-uv reads this, and a mismatched local uv
+# refuses to run. Patch updates within 0.13 are allowed.
+required-version = ">=0.13.9,<0.14"
