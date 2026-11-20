@@ -1,0 +1,16 @@
+# A stable name and IP in front of the pods. Only Ready pods receive traffic.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "orbit-telemetry.fullname" . }}
+  labels:
+    {{- include "orbit-telemetry.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "orbit-telemetry.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

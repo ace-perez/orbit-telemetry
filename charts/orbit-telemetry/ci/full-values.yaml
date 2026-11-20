@@ -1,0 +1,12 @@
+# Turns on every optional template, so `helm lint` and kubeconform check all of them in CI.
+# Not used for any real deployment.
+replicaCount: 2
+image:
+  tag: sha-0000000
+ingress:
+  enabled: true
+  host: orbit.example.test
+serviceMonitor:
+  enabled: true
+prometheusRule:
+  enabled: true

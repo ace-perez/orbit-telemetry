@@ -1,0 +1,14 @@
+apiVersion: v2
+name: orbit-telemetry
+description: Satellite telemetry API (real orbits from CelesTrak, simulated subsystems)
+type: application
+# Chart version: bump when the chart changes. appVersion: the app release it was made for;
+# deployments set image.tag to an immutable sha-<commit> tag instead.
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/ace-perez/orbit-telemetry
+sources:
+  - https://github.com/ace-perez/orbit-telemetry
+maintainers:
+  - name: Ace Perez

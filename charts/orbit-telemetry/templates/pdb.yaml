@@ -1,0 +1,15 @@
+{{- if gt (int .Values.replicaCount) 1 }}
+# Keeps at least minAvailable pods running during voluntary disruptions (node drains).
+# Not rendered for a single replica, where it would block every drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "orbit-telemetry.fullname" . }}
+  labels:
+    {{- include "orbit-telemetry.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "orbit-telemetry.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,19 @@
+# Values for the throwaway kind cluster in CI (and for trying the chart on a laptop).
+# The image is built locally and loaded into kind, so nothing is pulled from GHCR.
+image:
+  repository: orbit-telemetry
+  tag: ci
+  pullPolicy: Never # only use the image loaded with `kind load docker-image`
+
+config:
+  environment: kind
+  celestrakBaseUrl: http://celestrak-stub:8081 # the stub below, never the real CelesTrak
+  tickSeconds: 1 # the integration tests wait for positions to move
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 384Mi

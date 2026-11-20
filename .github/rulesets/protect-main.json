@@ -67,6 +67,10 @@
           {
             "context": "container",
             "integration_id": 15368
+          },
+          {
+            "context": "helm",
+            "integration_id": 15368
           }
         ]
       }

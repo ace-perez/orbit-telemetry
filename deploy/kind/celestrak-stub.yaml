@@ -1,0 +1,82 @@
+# The CelesTrak stub (tools/celestrak_stub.py) for the kind cluster in CI, so CI never calls
+# the real CelesTrak. The script and the fixture come from a ConfigMap created by CI:
+#   kubectl create configmap celestrak-stub \
+#     --from-file=tools/celestrak_stub.py --from-file=tests/fixtures/omm.json
+# Hardened like the app, so the Trivy config scan holds it to the same standard.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celestrak-stub
+  labels:
+    app.kubernetes.io/name: celestrak-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: celestrak-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: celestrak-stub
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: stub
+          image: python:3.13.18-slim-trixie
+          imagePullPolicy: IfNotPresent
+          workingDir: /stub
+          command: ["python", "tools/celestrak_stub.py"]
+          ports:
+            - name: http
+              containerPort: 8081
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          volumeMounts:
+            - name: stub-files
+              mountPath: /stub
+              readOnly: true
+      volumes:
+        - name: stub-files
+          configMap:
+            name: celestrak-stub
+            items:
+              - key: celestrak_stub.py
+                path: tools/celestrak_stub.py
+              - key: omm.json
+                path: tests/fixtures/omm.json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: celestrak-stub
+  labels:
+    app.kubernetes.io/name: celestrak-stub
+spec:
+  selector:
+    app.kubernetes.io/name: celestrak-stub
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http

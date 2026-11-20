@@ -1,0 +1,14 @@
+orbit-telemetry {{ include "orbit-telemetry.imageTag" . }} is deployed as {{ include "orbit-telemetry.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+Check it:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "orbit-telemetry.fullname" . }}
+  helm -n {{ .Release.Namespace }} test {{ .Release.Name }} --logs
+{{- if .Values.ingress.enabled }}
+
+Public URL: http://{{ .Values.ingress.host }}/
+{{- else }}
+
+No Ingress. Reach it with:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "orbit-telemetry.fullname" . }} 8000:{{ .Values.service.port }}
+  then open http://localhost:8000/docs
+{{- end }}

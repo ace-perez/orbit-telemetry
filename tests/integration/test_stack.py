@@ -1,5 +1,8 @@
 """Integration tests: the real container, over real HTTP, wired to its neighbours.
 
+Run against the Compose stack (Phase 4) and against the Helm release in a kind cluster
+(Phase 5, through `kubectl port-forward`, with INTEGRATION_EXPECTED_ENVIRONMENT=kind).
+
 Unit tests (the rest of tests/) call the app in-process with fakes. These tests instead talk
 to the running Compose stack, so they also prove what unit tests cannot: the image starts as
 a non-root user, the app listens on the container network, CELESTRAK_BASE_URL reaches the
@@ -22,6 +25,8 @@ import pytest
 
 BASE_URL = os.environ.get("INTEGRATION_BASE_URL")
 PROMETHEUS_URL = os.environ.get("INTEGRATION_PROMETHEUS_URL")
+# The same tests run against Compose (Phase 4) and a kind cluster (Phase 5).
+EXPECTED_ENVIRONMENT = os.environ.get("INTEGRATION_EXPECTED_ENVIRONMENT", "compose")
 ISS = 25544
 
 pytestmark = pytest.mark.skipif(not BASE_URL, reason="INTEGRATION_BASE_URL is not set")
@@ -58,7 +63,8 @@ def test_liveness(client: httpx.Client) -> None:
 
 def test_info_reflects_container_configuration(client: httpx.Client) -> None:
     info = client.get("/api/v1/info").json()
-    assert info["environment"] == "compose"  # set by compose.yaml, read from the environment
+    # Set by compose.yaml or the Helm values, read from the environment by the app.
+    assert info["environment"] == EXPECTED_ENVIRONMENT
     assert info["orbital_data_ok"] is True
     assert info["satellites_ready"] == info["satellites_tracked"] == 5
 
