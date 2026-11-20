@@ -1,8 +1,0 @@
-# Copy to terraform.tfvars (gitignored) and fill in. Only the first two have no default.
-helm_sha256_arm64 = "paste the hash from Phase 6, Step 1"
-alert_email       = "you@example.com"
-
-# Optional overrides
-# instance_type               = "t4g.large"
-# monthly_budget_usd          = 20
-# create_github_oidc_provider = false   # if the account already has GitHub's OIDC provider
