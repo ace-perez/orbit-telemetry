@@ -1,5 +1,5 @@
 # Dependabot opens PRs when dependencies have updates.
-# docker and terraform ecosystems are added in Phases 4 and 6, once those files exist.
+# The terraform ecosystem is added in Phase 6, once those files exist.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -17,3 +17,21 @@ updates:
     groups:
       python-minor-and-patch:
         update-types: ["minor", "patch"]
+
+  # Base images in the Dockerfile (python, uv)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      base-images:
+        patterns: ["*"]
+
+  # Images in compose.yaml (python for the stub, prometheus)
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      compose-images:
+        patterns: ["*"]

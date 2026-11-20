@@ -63,6 +63,10 @@
           {
             "context": "sonarqube",
             "integration_id": 15368
+          },
+          {
+            "context": "container",
+            "integration_id": 15368
           }
         ]
       }

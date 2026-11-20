@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     failure_rate: float = Field(default=0.0, ge=0.0, le=1.0)
 
     log_level: str = "INFO"
-    host: str = "127.0.0.1"  # inside a container the app must listen on all interfaces
+    host: str = "127.0.0.1"  # safe local default; the container image sets HOST=0.0.0.0
     port: int = 8000
 
     @property
