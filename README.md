@@ -22,3 +22,5 @@ Diagram added in Phase 8.
 
 ## Cost
 Runs on a single EC2 instance only while needed; `terraform destroy` removes everything.
+
+![CI](https://github.com/ace-perez/orbit-telemetry/actions/workflows/ci.yml)
