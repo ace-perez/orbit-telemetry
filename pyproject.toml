@@ -12,6 +12,7 @@ dependencies = [
     "prometheus-client>=0.26.0",
     "pydantic-settings>=2.16.3",
     "skyfield>=1.55",
+    "urllib3==1.26.4",
     "uvicorn>=0.54.0",
 ]
 
