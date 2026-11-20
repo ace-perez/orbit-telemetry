@@ -1,0 +1,41 @@
+#cloud-config
+# First-boot setup of the orbit-telemetry node (Ubuntu 24.04 arm64): k3s, Helm and the deploy
+# script. Rendered by Terraform's templatefile(); values in ${"$"}{...} are filled in at plan time.
+package_update: true
+packages:
+  - git
+  - jq
+  - curl
+
+write_files:
+  - path: /etc/rancher/k3s/config.yaml
+    permissions: "0600"
+    content: |
+      # kubeconfig readable by root only; Kubernetes Secrets encrypted at rest.
+      write-kubeconfig-mode: "0600"
+      secrets-encryption: true
+      node-label:
+        - "orbit-telemetry/role=all-in-one"
+
+  - path: /opt/orbit/env
+    permissions: "0644"
+    content: |
+      APP_HOST=${app_host}
+
+  - path: /opt/orbit/deploy.sh
+    permissions: "0750"
+    content: |
+      ${indent(6, deploy_script)}
+
+runcmd:
+  # k3s, pinned: the install script from the release tag, and the release itself.
+  - curl -sfL "https://raw.githubusercontent.com/k3s-io/k3s/${replace(k3s_version, "+", "%2B")}/install.sh" -o /tmp/k3s-install.sh
+  - INSTALL_K3S_VERSION="${k3s_version}" sh /tmp/k3s-install.sh
+  # Helm, pinned and checksum-verified, like in CI.
+  - curl -sSfL -o /tmp/helm.tar.gz "https://get.helm.sh/helm-v${helm_version}-linux-arm64.tar.gz"
+  - echo "${helm_sha256}  /tmp/helm.tar.gz" | sha256sum --check -
+  - tar -xzf /tmp/helm.tar.gz -C /tmp --strip-components=1 linux-arm64/helm
+  - install -m 0755 /tmp/helm /usr/local/bin/helm
+  - rm -f /tmp/helm /tmp/helm.tar.gz /tmp/k3s-install.sh
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl wait --for=condition=Ready node --all --timeout=300s
+  - echo "orbit-telemetry node ready" > /opt/orbit/bootstrap-complete
