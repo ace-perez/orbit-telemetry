@@ -4,7 +4,13 @@
 
 locals {
   github_oidc_url = "https://token.actions.githubusercontent.com"
-  github_oidc_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
+  github_owner    = split("/", var.github_repository)[0]
+  github_repo     = split("/", var.github_repository)[1]
+
+  # Immutable subject: names plus permanent numeric IDs, so a deleted-and-recreated or
+  # renamed repository with the same name can never inherit this trust.
+  github_deploy_subject = "repo:${local.github_owner}@${var.github_owner_id}/${local.github_repo}@${var.github_repository_id}:environment:production"
+  github_oidc_arn       = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -33,12 +39,12 @@ data "aws_iam_policy_document" "github_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Only jobs that declare `environment: production` in this repository. A pull request,
-    # another branch or a fork gets a different subject and is refused.
+    # Only jobs that declare `environment: production` in this exact repository (matched by
+    # its permanent IDs). A pull request, another branch or a fork gets a different subject.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:production"]
+      values   = [local.github_deploy_subject]
     }
   }
 }

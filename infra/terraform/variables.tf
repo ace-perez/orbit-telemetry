@@ -16,6 +16,32 @@ variable "github_repository" {
   default     = "ace-perez/orbit-telemetry"
 }
 
+# GitHub's immutable OIDC subject (the default for repositories created after 15 Jul 2026)
+# includes the owner's and repository's numeric IDs, which never change or get reused:
+#   repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:<name>
+# Find them with: gh api repos/ace-perez/orbit-telemetry --jq '.owner.id, .id'
+variable "github_owner_id" {
+  description = "Numeric ID of the repository owner (gh api repos/OWNER/REPO --jq .owner.id)."
+  type        = string
+  default     = "43325579"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_owner_id))
+    error_message = "Must be the numeric owner ID from the GitHub API."
+  }
+}
+
+variable "github_repository_id" {
+  description = "Numeric ID of the repository (gh api repos/OWNER/REPO --jq .id)."
+  type        = string
+  default     = "1464618752"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repository_id))
+    error_message = "Must be the numeric repository ID from the GitHub API."
+  }
+}
+
 variable "create_github_oidc_provider" {
   description = "Create GitHub's OIDC identity provider. Set false if the account already has one (only one per URL is allowed)."
   type        = bool
