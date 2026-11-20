@@ -1,4 +1,5 @@
 # Orbit Telemetry
+[![CI](https://github.com/ace-perez/orbit-telemetry/actions/workflows/ci.yml/badge.svg)](https://github.com/ace-perez/orbit-telemetry/actions/workflows/ci.yml)
 
 Satellite telemetry API (real orbits from CelesTrak, simulated spacecraft subsystems) delivered through a
 complete CI/CD pipeline: GitHub Actions, Docker, Helm on k3s (AWS EC2), Terraform, SonarQube Cloud, Trivy,
@@ -22,5 +23,3 @@ Diagram added in Phase 8.
 
 ## Cost
 Runs on a single EC2 instance only while needed; `terraform destroy` removes everything.
-
-![CI](https://github.com/ace-perez/orbit-telemetry/actions/workflows/ci.yml)
