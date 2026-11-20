@@ -1,0 +1,8 @@
+# Hadolint (Dockerfile linter) settings, used locally and in CI.
+# Fail on warnings and errors; info and style findings are reported but do not fail.
+failure-threshold: warning
+
+# Base images may only come from these registries (rule DL3026).
+trustedRegistries:
+  - docker.io
+  - ghcr.io

@@ -1,0 +1,11 @@
+# Prometheus configuration for the Compose stack (local and CI).
+# In Kubernetes (Phase 7) the kube-prometheus-stack finds the app through a ServiceMonitor instead.
+global:
+  scrape_interval: 5s # short, so the integration test sees a scrape within seconds
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: orbit-telemetry
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]

@@ -1,5 +1,6 @@
 # Continuous integration: quality and security gates on every pull request and every push
-# to main. Every job name below (lint, test, sast, trivy, secrets, sonarqube) is a required
+# to main, then a published container image for every green commit on main and every tag.
+# Every gate job name (lint, test, sast, trivy, secrets, sonarqube, container) is a required
 # check in .github/rulesets/protect-main.json, so renaming a job means updating that file too.
 name: CI
 
@@ -7,6 +8,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"] # release tags (Phase 8) publish a versioned image
   workflow_dispatch: # allows a manual run from the Actions tab or `gh workflow run`
 
 # Least privilege: the built-in GITHUB_TOKEN can only read the repo in this workflow.
@@ -18,6 +20,13 @@ permissions:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Shared by the trivy and container jobs. Trivy is installed from the release binary with a
+# pinned checksum instead of aquasecurity/trivy-action, whose tags were hijacked in March 2026.
+env:
+  TRIVY_VERSION: "0.76.2"
+  TRIVY_SHA256: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   lint:
@@ -133,11 +142,6 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    env:
-      # Installed from the release binary with a pinned checksum instead of
-      # aquasecurity/trivy-action, whose version tags were hijacked in March 2026.
-      TRIVY_VERSION: "0.76.2"
-      TRIVY_SHA256: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -231,3 +235,183 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Phase 4: container image
+  # ---------------------------------------------------------------------------
+
+  container:
+    name: container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      HADOLINT_VERSION: "2.15.1"
+      # Hadolint publishes no checksum file for this release, so this is the SHA-256 of the
+      # binary as first downloaded (trust on first use): any later change to it fails the job.
+      HADOLINT_SHA256: "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+      CI_IMAGE: orbit-telemetry:ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Hadolint (pinned version, checksum verified)
+        run: |
+          curl -sSfL -o hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+          echo "${HADOLINT_SHA256}  hadolint" | sha256sum --check -
+          sudo install -m 0755 hadolint /usr/local/bin/hadolint
+          rm hadolint
+
+      - name: Lint the Dockerfile (fails on warnings)
+        run: hadolint Dockerfile
+
+      - name: Hadolint report for the Security tab
+        if: always()
+        run: hadolint --no-fail --format sarif Dockerfile > hadolint.sarif
+
+      - name: Upload Hadolint results to code scanning
+        if: always() && hashFiles('hadolint.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: hadolint.sarif
+          category: hadolint
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image (not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true # into the runner's Docker, so Trivy and Compose can use it
+          tags: ${{ env.CI_IMAGE }}
+          build-args: APP_VERSION=ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max # layer cache shared with the publish job
+
+      - name: Image size
+        run: docker image ls "${CI_IMAGE}" --format '{{.Repository}}:{{.Tag}} {{.Size}}' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Trivy (pinned version, checksum verified)
+        run: |
+          curl -sSfL -o trivy.tar.gz \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tar.gz" | sha256sum --check -
+          tar -xzf trivy.tar.gz trivy
+          sudo install -m 0755 trivy /usr/local/bin/trivy
+          rm trivy trivy.tar.gz
+
+      - name: Image vulnerabilities, OS and Python packages (fails on fixable HIGH or CRITICAL)
+        run: >-
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
+          --exit-code 1 --no-progress "${CI_IMAGE}"
+
+      - name: Image report for the Security tab
+        if: always()
+        run: >-
+          trivy image --scanners vuln --format sarif --output trivy-image.sarif
+          --no-progress "${CI_IMAGE}"
+
+      - name: Upload image scan results to code scanning
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          cache-python: true
+
+      - name: Install test dependencies exactly as locked
+        run: uv sync --locked
+
+      - name: Start the stack (stub, app, Prometheus) and wait until healthy
+        env:
+          APP_IMAGE: ${{ env.CI_IMAGE }}
+        run: docker compose up --detach --no-build --wait --wait-timeout 120
+
+      - name: Integration tests against the running containers
+        env:
+          INTEGRATION_BASE_URL: http://localhost:8000
+          INTEGRATION_PROMETHEUS_URL: http://localhost:9090
+        run: uv run pytest tests/integration -v --junitxml=reports/integration.xml
+
+      - name: Container logs (on failure)
+        if: failure()
+        env:
+          APP_IMAGE: ${{ env.CI_IMAGE }}
+        run: docker compose logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        env:
+          APP_IMAGE: ${{ env.CI_IMAGE }}
+        run: docker compose down --volumes
+
+  # Publishes only from main or a release tag, and only after every gate passed. On a PR this
+  # job is skipped, so it is deliberately not a required check.
+  publish:
+    name: publish
+    if: github.event_name == 'push'
+    needs: [lint, test, sast, trivy, secrets, sonarqube, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write # push to GitHub Container Registry with the built-in token
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # sha-1a2b3c4 on every publish (immutable, what Phase 6 deploys), main on the default
+      # branch, and 1.0.0 / 1.0 on a v1.0.0 tag.
+      - name: Work out tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=main,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push (layers reused from the container job's cache)
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          provenance: mode=max # signed record of how and where the image was built
+          sbom: true # software bill of materials attached to the image
+
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "## Published image"
+            echo '```'
+            echo "${TAGS}"
+            echo "digest: ${DIGEST}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,30 @@
+# Keep the build context small and free of secrets. Only pyproject.toml, uv.lock,
+# README.md and src/ are needed to build the image.
+.git
+.github
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
+reports
+docs
+tests
+tools
+deploy
+_phase*
+compose.yaml
+Dockerfile
+.dockerignore
+.hadolint.yaml
+sonar-project.properties
+
+# Secrets and local config, in case any ever appear in the folder
+.env
+.env.*
+*.pem
+*.key
+kubeconfig*
+.DS_Store

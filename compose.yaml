@@ -1,0 +1,67 @@
+# Local stack and CI integration environment:
+#   celestrak-stub  serves the test fixtures in place of CelesTrak (fair use, offline, repeatable)
+#   app             the orbit-telemetry image, hardened the same way it will run in Kubernetes
+#   prometheus      scrapes the app's /metrics, proving the metrics endpoint works end to end
+#
+#   docker compose up --build --wait     build, start, and wait until every service is healthy
+#   docker compose down                  stop and remove everything
+#
+# Ports are bound to 127.0.0.1 so nothing is exposed to the local network.
+name: orbit-telemetry
+
+services:
+  celestrak-stub:
+    image: python:3.13.18-slim-trixie
+    working_dir: /stub
+    command: ["python", "tools/celestrak_stub.py"]
+    user: "10001:10001"
+    read_only: true
+    volumes:
+      - ./tools:/stub/tools:ro
+      - ./tests/fixtures:/stub/tests/fixtures:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    # CI builds the image first and sets APP_IMAGE; locally, `--build` builds it from the Dockerfile.
+    image: ${APP_IMAGE:-orbit-telemetry:local}
+    build:
+      context: .
+    environment:
+      CELESTRAK_BASE_URL: http://celestrak-stub:8081
+      ENVIRONMENT: compose
+      TICK_SECONDS: "1"
+      LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true # the app writes nothing to disk; Phase 5 sets readOnlyRootFilesystem too
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      celestrak-stub:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=1d
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      app:
+        condition: service_healthy
