@@ -16,6 +16,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.routing import Match
 
 from orbit_telemetry import schemas
 from orbit_telemetry.celestrak import CelesTrakClient
@@ -61,6 +62,22 @@ def create_app(
         if http_client:
             await http_client.aclose()
 
+    def route_template(request: Request) -> str:
+        """The matched route's template, also for requests that never reached the router.
+
+        An injected failure answers before routing, so scope has no "route". Without this
+        lookup those 500s were labelled "unmatched", fell outside the /api SLI and the
+        deploy bake could not see them.
+        """
+        route = request.scope.get("route")
+        if route is None:
+            for candidate in request.app.router.routes:
+                match, _ = candidate.matches(request.scope)
+                if match is Match.FULL:
+                    route = candidate
+                    break
+        return getattr(route, "path", "unmatched")
+
     app = FastAPI(
         title="Orbit Telemetry API",
         version=settings.app_version,
@@ -83,9 +100,8 @@ def create_app(
             response = await call_next(request)
 
         duration = time.perf_counter() - start
-        route = request.scope.get("route")
         # Label by route TEMPLATE (/satellites/{norad_id}) not raw path, to keep cardinality low.
-        route_label = getattr(route, "path", "unmatched")
+        route_label = route_template(request)
         metrics.http_requests.labels(request.method, route_label, str(response.status_code)).inc()
         metrics.http_duration.labels(request.method, route_label).observe(duration)
         response.headers["x-request-id"] = request_id

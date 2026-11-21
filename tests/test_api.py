@@ -97,3 +97,17 @@ def test_failure_injection_hits_api_but_not_probes(loaded_service):
         assert c.get("/api/v1/satellites").status_code == 500
         assert c.get("/healthz").status_code == 200  # Kubernetes must not kill the pod
         assert loaded_service.metrics.registry.get_sample_value("injected_failures_total") == 1
+
+
+def test_injected_failures_keep_their_route_label(loaded_service):
+    """The SLI filters on route=~"/api/.+", so injected 500s must carry the real route."""
+    settings = Settings(failure_rate=1.0)
+    app = create_app(settings=settings, service=loaded_service, start_background=False)
+    with TestClient(app) as c:
+        assert c.get("/api/v1/satellites/25544/telemetry").status_code == 500
+        assert c.get("/api/v1/does-not-exist").status_code == 500
+    registry = loaded_service.metrics.registry
+    labels = {"method": "GET", "route": "/api/v1/satellites/{norad_id}/telemetry", "status": "500"}
+    assert registry.get_sample_value("http_requests_total", labels) == 1
+    unknown = {"method": "GET", "route": "unmatched", "status": "500"}
+    assert registry.get_sample_value("http_requests_total", unknown) == 1
