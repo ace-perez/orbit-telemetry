@@ -80,7 +80,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "1 - (sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\", status=~\"5..\"}[30d])) / sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\"}[30d])))",
+          "expr": "1 - ((sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\", status=~\"5..\"}[30d])) or vector(0)) / sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\"}[30d])))",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
@@ -142,7 +142,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "1 - ((sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\", status=~\"5..\"}[30d])) / sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\"}[30d]))) / scalar(orbit:slo_error_budget:ratio))",
+          "expr": "1 - (((sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\", status=~\"5..\"}[30d])) or vector(0)) / sum(increase(http_requests_total{job=\"orbit-telemetry\", route=~\"/api/.+\"}[30d]))) / scalar(orbit:slo_error_budget:ratio))",
           "legendFormat": "",
           "refId": "A",
           "instant": true,

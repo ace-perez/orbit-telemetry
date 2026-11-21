@@ -51,7 +51,7 @@ helm test "$RELEASE" --namespace "$NAMESPACE" --logs
 if kubectl -n monitoring get service kps-prometheus >/dev/null 2>&1; then
   echo "==> Bake: measuring the API error ratio after ${BAKE_SECONDS}s of real traffic"
   sleep "$BAKE_SECONDS"
-  QUERY='sum(rate(http_requests_total{job="orbit-telemetry", route=~"/api/.+", status=~"5.."}[2m])) / sum(rate(http_requests_total{job="orbit-telemetry", route=~"/api/.+"}[2m]))'
+  QUERY='(sum(rate(http_requests_total{job="orbit-telemetry", route=~"/api/.+", status=~"5.."}[2m])) or vector(0)) / sum(rate(http_requests_total{job="orbit-telemetry", route=~"/api/.+"}[2m]))'
   ENCODED="$(jq -rn --arg q "$QUERY" '$q | @uri')"
   # Through the Kubernetes API server's service proxy: no port-forward, no exposed port.
   RATIO="$(kubectl get --raw "/api/v1/namespaces/monitoring/services/kps-prometheus:9090/proxy/api/v1/query?query=${ENCODED}" |
