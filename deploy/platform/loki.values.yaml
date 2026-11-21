@@ -1,0 +1,66 @@
+# Loki 7.7.0 chart in single-binary mode: one pod, logs on the node's disk, 3 days retained.
+# Grafana Alloy (alloy.values.yaml) ships every pod's logs here; Grafana queries it as "Loki".
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false # single tenant; only reachable inside the cluster
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2026-11-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  limits_config:
+    retention_period: 72h
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# The scalable and microservice targets are off in single-binary mode.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Caches, the canary, self-monitoring and the bundled MinIO are for larger installations.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+minio:
+  enabled: false
+
+gateway:
+  enabled: true # nginx in front of Loki: loki-gateway.monitoring.svc on port 80
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi

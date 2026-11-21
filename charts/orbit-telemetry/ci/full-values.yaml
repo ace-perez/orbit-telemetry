@@ -10,3 +10,7 @@ serviceMonitor:
   enabled: true
 prometheusRule:
   enabled: true
+grafanaDashboards:
+  enabled: true
+trafficGenerator:
+  enabled: true

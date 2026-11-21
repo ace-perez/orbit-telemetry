@@ -146,7 +146,10 @@ resource "aws_instance" "node" {
 
   lifecycle {
     # The AMI parameter moves to newer images over time; do not replace the node for that.
-    ignore_changes = [ami]
+    # user_data is ignored after creation: cloud-init only runs on first boot, and the deploy
+    # entry point it installs is refreshed in place by deploy/platform/install.sh. To rebuild
+    # the node from the current template on purpose: terraform apply -replace=aws_instance.node
+    ignore_changes = [ami, user_data]
   }
 }
 

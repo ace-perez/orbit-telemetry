@@ -1,5 +1,7 @@
 {{- if .Values.prometheusRule.enabled }}
 {{- $job := include "orbit-telemetry.fullname" . }}
+{{- $budget := printf "%.6f" (subf 1.0 .Values.slo.objective) }}
+{{- $budgetPct := printf "%.2f" (mulf (subf 1.0 .Values.slo.objective) 100) }}
 # Alert rules evaluated by Prometheus (kube-prometheus-stack, Phase 7) and routed by
 # Alertmanager. Phase 7 adds SLO burn-rate alerts alongside these.
 # Quoted double braces below render as literal braces for Prometheus' own label templating.
@@ -37,6 +39,60 @@ spec:
           annotations:
             summary: More than {{ mulf .Values.prometheusRule.errorRateThreshold 100 }}% of requests are failing
             description: 'Error ratio is {{ "{{" }} $value | humanizePercentage {{ "}}" }} over the last 5 minutes.'
+
+    # SLO: error ratio of /api requests over several windows, then burn-rate alerts.
+    # Burn rate = how many times faster than "exactly on budget" the budget is being used.
+    # Each alert needs a long and a short window both over the threshold, so it fires fast on
+    # a real incident and resets fast once it is over (SRE Workbook, chapter 5).
+    - name: orbit-telemetry.slo
+      rules:
+        {{- range $window := list "5m" "30m" "1h" "2h" "6h" "1d" "3d" }}
+        - record: orbit:api_error_ratio:rate{{ $window }}
+          expr: |
+            sum(rate(http_requests_total{job="{{ $job }}", route=~"/api/.+", status=~"5.."}[{{ $window }}]))
+              /
+            sum(rate(http_requests_total{job="{{ $job }}", route=~"/api/.+"}[{{ $window }}]))
+        {{- end }}
+        - record: orbit:slo_error_budget:ratio
+          expr: vector({{ $budget }})
+
+        - alert: OrbitTelemetrySLOFastBurn
+          expr: |
+            (
+              orbit:api_error_ratio:rate1h > (14.4 * {{ $budget }})
+              and
+              orbit:api_error_ratio:rate5m > (14.4 * {{ $budget }})
+            )
+            or
+            (
+              orbit:api_error_ratio:rate6h > (6 * {{ $budget }})
+              and
+              orbit:api_error_ratio:rate30m > (6 * {{ $budget }})
+            )
+          labels:
+            severity: critical
+          annotations:
+            summary: The API is burning its error budget fast
+            description: 'At this rate the 30-day error budget ({{ $budgetPct }}% of requests) runs out within days. Current 5m error ratio: {{ "{{" }} $value | humanizePercentage {{ "}}" }}.'
+
+        - alert: OrbitTelemetrySLOSlowBurn
+          expr: |
+            (
+              orbit:api_error_ratio:rate1d > (3 * {{ $budget }})
+              and
+              orbit:api_error_ratio:rate2h > (3 * {{ $budget }})
+            )
+            or
+            (
+              orbit:api_error_ratio:rate3d > (1 * {{ $budget }})
+              and
+              orbit:api_error_ratio:rate6h > (1 * {{ $budget }})
+            )
+          labels:
+            severity: warning
+          annotations:
+            summary: The API is slowly burning its error budget
+            description: The error budget will be used up before the end of the 30-day window if this continues.
 
     - name: orbit-telemetry.data
       rules:

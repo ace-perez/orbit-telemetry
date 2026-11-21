@@ -428,6 +428,26 @@ jobs:
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           kubeconform -strict -summary -kubernetes-version 1.37.0 deploy/kind/celestrak-stub.yaml
 
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          cache-python: true
+
+      - name: Check the alert and SLO rules with promtool
+        env:
+          PROMETHEUS_VERSION: "3.16.0"
+          PROMETHEUS_SHA256: "fd8571b8162f4020232d886f17340bcf92e1722985ae3b4c1d096157826c0fbe"
+        run: |
+          curl -sSfL -o prometheus.tar.gz \
+            "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-arm64.tar.gz"
+          echo "${PROMETHEUS_SHA256}  prometheus.tar.gz" | sha256sum --check -
+          tar -xzf prometheus.tar.gz --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-arm64/promtool"
+          helm template orbit-telemetry "${CHART}" -f deploy/ec2/values-ec2.yaml \
+            --set image.tag=sha-0000000 --show-only templates/prometheusrule.yaml \
+            | uv run --no-project --with pyyaml python -c 'import json, sys, yaml; d = yaml.safe_load(sys.stdin); json.dump({"groups": d["spec"]["groups"]}, sys.stdout)' \
+            > rules.json
+          ./promtool check rules rules.json
+          rm -f prometheus.tar.gz promtool rules.json
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build the image (reuses the container job's layer cache)
@@ -460,10 +480,6 @@ jobs:
 
       - name: Helm test (readiness through the Service)
         run: helm test orbit-telemetry --logs
-
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          cache-python: true
 
       - name: Integration tests through the Kubernetes Service
         env:
@@ -565,7 +581,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     needs: [publish]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: production
       url: http://${{ vars.APP_HOST }}/docs
@@ -597,13 +613,13 @@ jobs:
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "deploy ${IMAGE_TAG} (run ${GITHUB_RUN_ID})" \
-            --timeout-seconds 600 \
+            --timeout-seconds 900 \
             --parameters "$PARAMS" \
             --query Command.CommandId --output text)"
           echo "SSM command ${COMMAND_ID}"
 
           STATUS=Pending
-          for _ in $(seq 1 120); do
+          for _ in $(seq 1 180); do # up to 15 minutes: rollout, helm test, 150 s bake
             STATUS="$(aws ssm get-command-invocation --command-id "$COMMAND_ID" \
               --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)"
             case "$STATUS" in Pending|InProgress|Delayed) sleep 5 ;; *) break ;; esac
