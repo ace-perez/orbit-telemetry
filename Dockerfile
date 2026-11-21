@@ -62,6 +62,8 @@ LABEL org.opencontainers.image.title="orbit-telemetry" \
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends --only-upgrade \
         "zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1" \
+        "libc6=2.41-12+deb13u5" \
+        "libc-bin=2.41-12+deb13u5" \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip uninstall --yes pip \
     && groupadd --system --gid 10001 app \
