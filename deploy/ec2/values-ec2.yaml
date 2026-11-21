@@ -5,7 +5,7 @@
 config:
   environment: production
   celestrakBaseUrl: https://celestrak.org # the real CelesTrak, refreshed every 2 hours (fair use)
-  failureRate: 0.3 # the rollback demo raises this in a pull request, then reverts it
+  failureRate: 0 # the rollback demo raises this in a pull request, then reverts it
 
 ingress:
   enabled: true
