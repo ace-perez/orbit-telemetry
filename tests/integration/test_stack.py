@@ -97,6 +97,15 @@ def test_unknown_satellite_is_404(client: httpx.Client) -> None:
     assert client.get("/api/v1/satellites/1/telemetry").status_code == 404
 
 
+def test_console_page_and_its_files_are_served(client: httpx.Client) -> None:
+    """The image carries the page and the vendored files (package data in the wheel)."""
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "default-src 'self'" in page.headers["content-security-policy"]
+    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/vendor/d3.min.js").status_code == 200
+
+
 def test_metrics_exposed(client: httpx.Client) -> None:
     body = client.get("/metrics").text
     assert "orbit_telemetry_build_info" in body

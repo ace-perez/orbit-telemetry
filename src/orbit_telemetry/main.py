@@ -1,6 +1,7 @@
 """FastAPI application: routes, middleware and lifecycle.
 
-Run locally with `uv run orbit-telemetry`, then open http://localhost:8000/docs.
+Run locally with `uv run orbit-telemetry`, then open http://localhost:8000/ (the console page)
+or http://localhost:8000/docs (the API).
 """
 
 import asyncio
@@ -10,11 +11,13 @@ import random
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 from typing import Annotated
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.routing import Match
 
@@ -27,6 +30,25 @@ from orbit_telemetry.service import TelemetryService
 from orbit_telemetry.sun import subsolar_point
 
 log = logging.getLogger("orbit_telemetry.access")
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+# The console page and its files load only from this site: no CDN, no inline code, no framing.
+# Not applied to /docs, whose Swagger UI loads its scripts from a CDN.
+PAGE_SECURITY_HEADERS = {
+    "content-security-policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; "
+        "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+        "form-action 'none'; frame-ancestors 'none'"
+    ),
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+}
+
+
+def is_page_path(path: str) -> bool:
+    """The console page and its static files, which get the strict security headers."""
+    return path == "/" or path.startswith("/static/")
 
 
 def create_app(
@@ -63,20 +85,18 @@ def create_app(
             await http_client.aclose()
 
     def route_template(request: Request) -> str:
-        """The matched route's template, also for requests that never reached the router.
+        """The template of the route this request will hit, worked out before routing.
 
-        An injected failure answers before routing, so scope has no "route". Without this
-        lookup those 500s were labelled "unmatched", fell outside the /api SLI and the
-        deploy bake could not see them.
+        Matching the untouched scope against the routes up front labels every request the
+        same way: injected failures (which answer before routing; labelled "unmatched" they
+        fell outside the /api SLI and the bake could not see them, fixed in #17) and files
+        under the /static mount (which rewrites the scope once it runs) included.
         """
-        route = request.scope.get("route")
-        if route is None:
-            for candidate in request.app.router.routes:
-                match, _ = candidate.matches(request.scope)
-                if match is Match.FULL:
-                    route = candidate
-                    break
-        return getattr(route, "path", "unmatched")
+        for candidate in request.app.router.routes:
+            match, _ = candidate.matches(request.scope)
+            if match is Match.FULL:
+                return getattr(candidate, "path", "unmatched")
+        return "unmatched"
 
     app = FastAPI(
         title="Orbit Telemetry API",
@@ -92,6 +112,8 @@ def create_app(
         """Request ID, failure injection, RED metrics and one structured log line."""
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         start = time.perf_counter()
+        # Label by route TEMPLATE (/satellites/{norad_id}) not raw path, to keep cardinality low.
+        route_label = route_template(request)
 
         if request.url.path.startswith("/api/") and failure_rng.random() < settings.failure_rate:
             metrics.injected_failures.inc()
@@ -100,11 +122,11 @@ def create_app(
             response = await call_next(request)
 
         duration = time.perf_counter() - start
-        # Label by route TEMPLATE (/satellites/{norad_id}) not raw path, to keep cardinality low.
-        route_label = route_template(request)
         metrics.http_requests.labels(request.method, route_label, str(response.status_code)).inc()
         metrics.http_duration.labels(request.method, route_label).observe(duration)
         response.headers["x-request-id"] = request_id
+        if is_page_path(request.url.path):
+            response.headers.update(PAGE_SECURITY_HEADERS)
         log.info(
             "request",
             extra={
@@ -117,6 +139,15 @@ def create_app(
             },
         )
         return response
+
+    # -- console page ----------------------------------------------------------------
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        """The mission console page; it reads everything from the /api routes below."""
+        return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     # -- probes and metrics --------------------------------------------------------
 
