@@ -118,6 +118,28 @@ prometheusRule:
     release: kube-prometheus-stack
   errorRateThreshold: 0.05 # 5% of requests failing for 5 minutes
 
+# Service level objective for the API (Phase 7). Availability = share of /api requests that do
+# not return a 5xx. 99.5% over 30 days leaves an error budget of 0.5%. The burn-rate alerts
+# follow the multiwindow, multi-burn-rate method from Google's SRE Workbook.
+slo:
+  objective: 0.995
+
+# Grafana dashboards shipped with the chart as ConfigMaps; Grafana's sidecar loads any
+# ConfigMap labelled grafana_dashboard=1, so dashboards are versioned with the code.
+grafanaDashboards:
+  enabled: false
+
+# A small in-cluster client calling the API about once a second, so the SLO has data even when
+# nobody is using the site, and so the post-deploy check has traffic to measure.
+trafficGenerator:
+  enabled: false
+  intervalSeconds: 1
+  paths:
+    - /api/v1/satellites
+    - /api/v1/satellites/25544/telemetry
+    - /api/v1/sun
+    - /api/v1/info
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

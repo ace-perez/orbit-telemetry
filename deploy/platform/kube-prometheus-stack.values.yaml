@@ -1,0 +1,133 @@
+# kube-prometheus-stack 93.6.0 on the single k3s node (Phase 7).
+# Prometheus Operator + Prometheus + Alertmanager + Grafana + kube-state-metrics + node-exporter.
+fullnameOverride: kps # short, stable names: kps-prometheus, kps-alertmanager, kps-operator
+
+# k3s runs the control plane inside one process and does not expose these components on
+# their own ports; scraping them would only produce permanent "target down" alerts.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    retention: 3d # the cluster lives for days, not months
+    retentionSize: 6GB
+    # Pick up every ServiceMonitor and PrometheusRule in the cluster, not only ones carrying
+    # this release's label, so the app chart does not depend on the release name.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        memory: 1536Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path # k3s's built-in storage, a folder on the node's disk
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+
+alertmanager:
+  alertmanagerSpec:
+    # Mounted at /etc/alertmanager/secrets/alertmanager-discord/; created by install.sh from
+    # SSM Parameter Store, so the webhook URL never appears in a values file or in git.
+    secrets:
+      - alertmanager-discord
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: discord
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # Always-firing heartbeat and a helper alert: not something to post to Discord.
+        - receiver: "null"
+          matchers: ['alertname = "Watchdog"']
+        - receiver: "null"
+          matchers: ['alertname = "InfoInhibitor"']
+    receivers:
+      - name: "null"
+      - name: discord
+        discord_configs:
+          - webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord/webhook-url
+            send_resolved: true
+    inhibit_rules:
+      # A critical alert silences the warning of the same name and namespace.
+      - source_matchers: ['severity = "critical"']
+        target_matchers: ['severity = "warning"']
+        equal: ["alertname", "namespace"]
+
+grafana:
+  fullnameOverride: kps-grafana
+  # Admin login from a Secret created by install.sh (password kept in SSM Parameter Store),
+  # never the chart's well-known default.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  defaultDashboardsTimezone: utc
+  # Not exposed: reached only through an SSM port-forward (no Ingress, no public port).
+  service:
+    type: ClusterIP
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL # the app chart ships its dashboards in the orbit namespace
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      url: http://loki-gateway.monitoring.svc.cluster.local
+      access: proxy
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 384Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi

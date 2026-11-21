@@ -1,0 +1,64 @@
+{{- if .Values.trafficGenerator.enabled }}
+# Synthetic traffic: calls a few API endpoints through the Service about once a second, so the
+# SLO and the post-deploy error check always have requests to measure. Reuses the app image
+# (Python standard library), hardened the same way as the app.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "orbit-telemetry.fullname" . }}-traffic
+  labels:
+    {{- include "orbit-telemetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "orbit-telemetry.name" . }}-traffic
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "orbit-telemetry.name" . }}-traffic
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: traffic-generator
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: traffic
+          image: {{ include "orbit-telemetry.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: BASE_URL
+              value: "http://{{ include "orbit-telemetry.fullname" . }}:{{ .Values.service.port }}"
+            - name: PATHS
+              value: {{ join "," .Values.trafficGenerator.paths | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ .Values.trafficGenerator.intervalSeconds | quote }}
+          command:
+            - python
+            - -c
+            - |
+              import os, time, urllib.error, urllib.request
+              base = os.environ["BASE_URL"]
+              paths = os.environ["PATHS"].split(",")
+              interval = float(os.environ["INTERVAL_SECONDS"])
+              while True:
+                  for path in paths:
+                      try:
+                          urllib.request.urlopen(base + path, timeout=5).read()
+                      except (urllib.error.URLError, OSError):
+                          pass  # failures are what the SLO measures; keep going
+                      time.sleep(interval)
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}

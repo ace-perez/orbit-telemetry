@@ -1,0 +1,17 @@
+{{- if .Values.grafanaDashboards.enabled }}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+# Grafana dashboard as code: Grafana's sidecar watches for ConfigMaps with this label and
+# loads the JSON, so the dashboards change through pull requests like everything else.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orbit-telemetry.fullname" $ }}-dashboard-{{ base $path | trimSuffix ".json" }}
+  labels:
+    {{- include "orbit-telemetry.labels" $ | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}
