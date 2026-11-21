@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Live satellite positions from CelesTrak orbits, with simulated spacecraft subsystems.">
+  <title>Orbit Telemetry: mission console</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Orbit Telemetry home">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle>
+        <ellipse cx="12" cy="12" rx="10" ry="4.5" fill="none" stroke="currentColor" stroke-width="1.5" transform="rotate(-25 12 12)"></ellipse>
+        <circle cx="20.2" cy="8.6" r="1.6" fill="currentColor"></circle>
+      </svg>
+      <span>ORBIT</span><span class="accent">//TELEMETRY</span>
+    </a>
+    <span class="badge" id="environment">--</span>
+    <span class="mono muted" id="version">--</span>
+    <span class="spacer"></span>
+    <span class="chip chip-wait" id="link">CONNECTING</span>
+    <a class="toplink" href="/docs">API docs</a>
+  </header>
+
+  <main class="console">
+    <section class="panel list-panel" aria-labelledby="list-title">
+      <div class="panel-head">
+        <h2 id="list-title">Constellation</h2>
+        <span class="tag" id="count">0 active</span>
+      </div>
+      <label class="filter">
+        <span class="sr-only">Filter satellites by NORAD ID or name</span>
+        <input id="filter" type="search" placeholder="Filter NORAD ID or name" autocomplete="off" spellcheck="false">
+      </label>
+      <ul class="sat-list" id="sat-list"></ul>
+      <div class="panel-foot mono">
+        <span>PROPAGATOR: SGP4</span>
+        <span id="ephemeris">--</span>
+      </div>
+    </section>
+
+    <section class="panel globe-panel" aria-labelledby="globe-title">
+      <div class="panel-head">
+        <h2 id="globe-title">Orthographic globe</h2>
+        <span class="tag">WGS-84</span>
+        <span class="tag">Ground track: next 3 passes</span>
+        <span class="spacer"></span>
+        <button class="toggle" id="autotrack" type="button" aria-pressed="true">Auto-track: on</button>
+      </div>
+      <div class="lockbar mono">
+        <span>LOCK: <b id="lock">--</b></span>
+        <span>CAM: <b id="cam">--</b></span>
+        <span class="sun-readout">SUBSOLAR: <b id="subsolar">--</b></span>
+      </div>
+      <div class="globe-wrap" id="globe-wrap">
+        <svg id="globe" role="img" aria-labelledby="globe-desc"><desc id="globe-desc">Globe showing the selected satellite, its ground track, its coverage footprint and the night side of the Earth.</desc></svg>
+        <p class="globe-hint mono">Drag to rotate</p>
+      </div>
+      <ul class="legend mono" aria-label="Legend">
+        <li><i class="key key-track0"></i>Pass 0</li>
+        <li><i class="key key-track1"></i>Pass +1</li>
+        <li><i class="key key-track2"></i>Pass +2</li>
+        <li><i class="key key-footprint"></i>Coverage footprint</li>
+        <li><i class="key key-night"></i>Night side</li>
+      </ul>
+      <div class="globe-foot mono">
+        <span>ELEMENTS EPOCH: <b id="epoch">--</b></span>
+        <span>INC: <b id="inclination">--</b></span>
+        <span>PERIOD: <b id="period">--</b></span>
+      </div>
+    </section>
+
+    <section class="panel detail-panel" aria-labelledby="d-name">
+      <div class="detail-head">
+        <h2 id="d-name">--</h2>
+        <span class="chip" id="d-light">--</span>
+        <p class="mono muted">NORAD <b id="d-norad">--</b> · INTL <b id="d-intl">--</b> · <span id="d-class">--</span></p>
+      </div>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>Position and dynamics</h3>
+          <span class="tag tag-real">REAL ORBIT</span>
+        </header>
+        <div class="readouts">
+          <div class="readout"><span class="label">Latitude</span><span class="value mono" id="lat">--</span></div>
+          <div class="readout"><span class="label">Longitude</span><span class="value mono" id="lon">--</span></div>
+          <div class="readout"><span class="label">Altitude</span><span class="value mono" id="alt">--</span></div>
+          <div class="readout"><span class="label">Speed</span><span class="value mono" id="speed">--</span></div>
+          <div class="readout"><span class="label">Beta angle</span><span class="value mono" id="beta">--</span></div>
+          <div class="readout"><span class="label">Footprint half-angle</span><span class="value mono" id="footprint">--</span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>Power subsystem</h3>
+          <span class="tag tag-sim">SIMULATED</span>
+        </header>
+        <div class="row">
+          <span class="label">Illumination</span>
+          <span class="chip" id="p-light">--</span>
+        </div>
+        <div class="meter">
+          <div class="row"><span class="label">Main bus</span><span class="value mono" id="p-volt">--</span></div>
+          <div class="bands" id="bands" aria-hidden="true">
+            <span class="band band-low"></span><span class="band band-ok"></span><span class="band band-high"></span>
+            <span class="marker" id="volt-marker"></span>
+          </div>
+          <div class="row mono small muted"><span id="b-crit">--</span><span class="ok" id="b-nominal">--</span><span id="b-ovp">--</span></div>
+        </div>
+        <div class="meter">
+          <div class="row"><span class="label">State of charge</span><span class="value mono" id="p-soc">--</span></div>
+          <div class="cells" id="soc-cells" aria-hidden="true"></div>
+        </div>
+        <div class="row">
+          <span class="label">Solar array current</span>
+          <span class="value mono" id="p-solar">--</span>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h3>Thermal control</h3>
+          <span class="tag tag-sim">SIMULATED</span>
+        </header>
+        <div class="readouts">
+          <div class="readout"><span class="label">Core temperature</span><span class="value mono" id="t-core">--</span></div>
+          <div class="readout"><span class="label">Target</span><span class="value mono" id="t-target">--</span></div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="statusbar mono">
+    <span>Real orbits from CelesTrak, simulated subsystems</span>
+    <span class="spacer"></span>
+    <span id="age">--</span>
+    <span><i class="dot"></i>Auto-refresh every 2 s</span>
+  </footer>
+
+  <script src="/static/vendor/d3.min.js"></script>
+  <script src="/static/vendor/topojson-client.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
