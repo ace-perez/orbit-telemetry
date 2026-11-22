@@ -128,7 +128,7 @@ Every choice here was made for a one-week project on a student budget. Each one 
 | **Web libraries bundled into the image** instead of loaded from a CDN | The page can use a strict security policy and makes no requests to other sites. | Updates are manual: Dependabot cannot see bundled files, so a checksum test makes every change deliberate. |
 | **HTTP only, for now** | HTTPS was planned, built and tested, and will be implemented later on. | Traffic to the live site is not encrypted. Nothing sensitive is served, and Grafana is never public. |
 
-## Run it locally
+## Running it locally
 
 You need Docker. This starts the app with test satellite data (no internet needed for the orbits), plus Prometheus:
 
